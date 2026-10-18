@@ -1,27 +1,31 @@
-from fastapi import FastAPI, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-import subprocess, os, uuid
+import streamlit as st
+import torchaudio, torch
+from demucs.pretrained import get_model
+from demucs.apply import apply_model
+import tempfile
 
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+st.set_page_config(page_title="V100 BEST META", layout="centered")
+st.title("V100 BEST - Demucs META")
+st.caption("Motor htdemucs da Meta - voz 100% limpa")
 
-@app.post("/demucs")
-async def demucs_separate(file: UploadFile):
-    id = str(uuid.uuid4())[:8]
-    input_path = f"/tmp/{id}_{file.filename}"
-    with open(input_path, "wb") as f:
-        f.write(await file.read())
-    
-    # Roda Demucs htdemucs_ft - BEST qualidade
-    subprocess.run(["demucs", "-n", "htdemucs_ft", "--mp3", "--mp3-bitrate", "320", "-o", f"/tmp/out_{id}", input_path])
-    
-    base = f"/tmp/out_{id}/htdemucs_ft/{id}_{file.filename.split('.')[0]}"
-    return {
-        "vocals": f"/download/{id}/vocals.mp3",
-        "drums": f"/download/{id}/drums.mp3", 
-        "bass": f"/download/{id}/bass.mp3",
-        "other": f"/download/{id}/other.mp3"
-    }
-
-@app.get("/")
-def ok(): return {"status":"Demucs BEST API ON - Motor V95 + Meta"}
+file = st.file_uploader("Carrega a musica", type=["mp3","wav","flac","m4a"])
+if file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+        tmp.write(file.read())
+        tmp_path = tmp.name
+    st.audio(file)
+    if st.button("SEPARAR BEST", type="primary"):
+        with st.spinner("Rodando Demucs BEST..."):
+            wav, sr = torchaudio.load(tmp_path)
+            if wav.shape[0]==1: wav=wav.repeat(2,1)
+            model = get_model("htdemucs")
+            model.eval()
+            wav = wav.unsqueeze(0)
+            with torch.no_grad():
+                sources = apply_model(model, wav, device="cpu")[0]
+            names=["bateria","baixo","outros","voz"]
+            for i,name in enumerate(names):
+                out_path = f"/tmp/{name}.wav"
+                torchaudio.save(out_path, sources[i], sr)
+                st.success(f"{name.upper()} pronto")
+                st.audio(out_path)
